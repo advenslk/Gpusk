@@ -38,7 +38,11 @@ jobs:
         env:
           VULTR_API_KEY: ${{ secrets.VULTR_API_KEY }}
         run: |
-          export VULTR_API_KEY="$VULTR_API_KEY"
+          mkdir -p ~/.config/vultr-cli
+          cat > ~/.config/vultr-cli/config.yaml << EOF
+          api-key: $VULTR_API_KEY
+          EOF
+          chmod 600 ~/.config/vultr-cli/config.yaml
           vultr-cli account info
 
       - name: Create GPU VPS Instance
