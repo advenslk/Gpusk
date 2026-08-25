@@ -24,15 +24,21 @@ jobs:
 
       - name: Install Vultr CLI
         run: |
-          curl -L https://github.com/vultr/vultr-cli/releases/download/v2.14.0/vultr-cli_2.14.0_linux_amd64.tar.gz | tar xz
+          sudo apt-get update -y
+          sudo apt-get install -y curl jq tar sshpass
+          LATEST_URL=$(curl -s https://api.github.com/repos/vultr/vultr-cli/releases/latest | jq -r '.assets[] | select(.name | test("linux_amd64.tar.gz$")) | .browser_download_url' | head -n1)
+          echo "Downloading: $LATEST_URL"
+          curl -L "$LATEST_URL" -o vultr-cli.tar.gz
+          tar xzf vultr-cli.tar.gz
           sudo mv vultr-cli /usr/local/bin/
           sudo chmod +x /usr/local/bin/vultr-cli
+          vultr-cli version
 
       - name: Authenticate Vultr CLI
         env:
           VULTR_API_KEY: ${{ secrets.VULTR_API_KEY }}
         run: |
-          echo "$VULTR_API_KEY" > ~/.vultr-cli.yaml
+          export VULTR_API_KEY="$VULTR_API_KEY"
           vultr-cli account info
 
       - name: Create GPU VPS Instance
@@ -46,8 +52,6 @@ jobs:
             --host "gh-gpu-${{ github.run_id }}" \
             --ipv6 false \
             --notify false \
-            --ssh-key-id "" \
-            --script-id "" \
             -o json | jq -r '.instance.id')
           echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
           echo "Instance ID: $INSTANCE_ID"
