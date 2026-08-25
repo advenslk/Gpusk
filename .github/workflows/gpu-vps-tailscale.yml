@@ -1,0 +1,94 @@
+name: GPU VPS + Tailscale Auto-Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      tailscale_auth_key:
+        description: 'Tailscale Auth Key (tskey-auth-...)'
+        required: true
+      gpu_instance_region:
+        description: 'Vultr Region (e.g. ewr, lax, ord)'
+        required: true
+        default: 'ewr'
+      gpu_instance_plan:
+        description: 'Vultr GPU Plan (e.g. vcg-a100-1g)'
+        required: true
+        default: 'vcg-a100-1g'
+
+jobs:
+  provision-gpu-vps:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install Vultr CLI
+        run: |
+          curl -L https://github.com/vultr/vultr-cli/releases/download/v2.14.0/vultr-cli_2.14.0_linux_amd64.tar.gz | tar xz
+          sudo mv vultr-cli /usr/local/bin/
+          sudo chmod +x /usr/local/bin/vultr-cli
+
+      - name: Authenticate Vultr CLI
+        env:
+          VULTR_API_KEY: ${{ secrets.VULTR_API_KEY }}
+        run: |
+          echo "$VULTR_API_KEY" > ~/.vultr-cli.yaml
+          vultr-cli account info
+
+      - name: Create GPU VPS Instance
+        id: create_vps
+        run: |
+          INSTANCE_ID=$(vultr-cli instance create \
+            --region ${{ github.event.inputs.gpu_instance_region }} \
+            --plan ${{ github.event.inputs.gpu_instance_plan }} \
+            --os 1743 \
+            --label "gh-actions-gpu-${{ github.run_id }}" \
+            --host "gh-gpu-${{ github.run_id }}" \
+            --ipv6 false \
+            --notify false \
+            --ssh-key-id "" \
+            --script-id "" \
+            -o json | jq -r '.instance.id')
+          echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
+          echo "Instance ID: $INSTANCE_ID"
+
+      - name: Wait for VPS to be active
+        run: |
+          for i in {1..30}; do
+            STATUS=$(vultr-cli instance get $INSTANCE_ID -o json | jq -r '.instance.status')
+            echo "Status: $STATUS"
+            if [[ "$STATUS" == "active" ]]; then
+              break
+            fi
+            sleep 10
+          done
+
+      - name: Get VPS IP and Default Password
+        id: get_creds
+        run: |
+          MAIN_IP=$(vultr-cli instance get $INSTANCE_ID -o json | jq -r '.instance.main_ip')
+          DEFAULT_PASSWORD=$(vultr-cli instance get $INSTANCE_ID -o json | jq -r '.instance.default_password')
+          echo "MAIN_IP=$MAIN_IP" >> $GITHUB_ENV
+          echo "DEFAULT_PASSWORD=$DEFAULT_PASSWORD" >> $GITHUB_ENV
+          echo "Username: root"
+          echo "IP: $MAIN_IP"
+          echo "Password: $DEFAULT_PASSWORD"
+
+      - name: Install Tailscale on VPS
+        run: |
+          sshpass -p "$DEFAULT_PASSWORD" ssh -o StrictHostKeyChecking=no root@$MAIN_IP << 'EOF'
+            curl -fsSL https://tailscale.com/install.sh | sh
+            tailscale up --authkey ${{ github.event.inputs.tailscale_auth_key }} --hostname gh-gpu-${{ github.run_id }}
+            tailscale ip -4
+          EOF
+
+      - name: Output Credentials
+        run: |
+          echo "============================================"
+          echo "GPU VPS READY"
+          echo "============================================"
+          echo "Username: root"
+          echo "IP: $MAIN_IP"
+          echo "Password: $DEFAULT_PASSWORD"
+          echo "Tailscale IP: $(sshpass -p "$DEFAULT_PASSWORD" ssh -o StrictHostKeyChecking=no root@$MAIN_IP 'tailscale ip -4')"
+          echo "============================================"
