@@ -3,11 +3,14 @@ name: GPU VPS + Tailscale Auto-Deploy
 on:
   workflow_dispatch:
     inputs:
+      vultr_api_key:
+        description: 'Vultr API Key'
+        required: true
       tailscale_auth_key:
         description: 'Tailscale Auth Key (tskey-auth-...)'
         required: true
       gpu_instance_region:
-        description: 'Vultr Region (e.g. ewr, lax, ord)'
+        description: 'Vultr Region (e.g. ewr)'
         required: true
         default: 'ewr'
       gpu_instance_plan:
@@ -35,13 +38,9 @@ jobs:
           vultr-cli version
 
       - name: Authenticate Vultr CLI
-        env:
-          VULTR_API_KEY: ${{ secrets.VULTR_API_KEY }}
         run: |
           mkdir -p ~/.config/vultr-cli
-          cat > ~/.config/vultr-cli/config.yaml << EOF
-          api-key: $VULTR_API_KEY
-          EOF
+          echo "api-key: ${{ github.event.inputs.vultr_api_key }}" > ~/.config/vultr-cli/config.yaml
           chmod 600 ~/.config/vultr-cli/config.yaml
           vultr-cli account info
 
